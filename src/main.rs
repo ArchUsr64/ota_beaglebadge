@@ -3,7 +3,7 @@ use embedded_graphics::{
 	mono_font::{MonoTextStyle, ascii::FONT_10X20},
 	pixelcolor::BinaryColor,
 	prelude::*,
-	text::Text,
+	text::{Alignment, Text},
 };
 
 use evdev::Device;
@@ -71,9 +71,14 @@ fn main() {
 	target.clear(BinaryColor::Off);
 
 	let text_style = MonoTextStyle::new(&FONT_10X20, BinaryColor::On);
-	Text::new("Welcome to BeagleBadge!", Point::new(100, 20), text_style)
-		.draw(&mut target)
-		.unwrap();
+	Text::with_alignment(
+		"Welcome to BeagleBadge!",
+		Point::new(target.width as i32 / 2, 20),
+		text_style,
+		Alignment::Center,
+	)
+	.draw(&mut target)
+	.unwrap();
 
 	let mut device = Device::open("/dev/input/event0").unwrap();
 

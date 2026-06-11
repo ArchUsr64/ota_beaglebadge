@@ -10,6 +10,7 @@ use embedded_graphics::{
 
 use evdev::{Device, EventSummary, KeyCode};
 
+#[derive(Debug)]
 struct FramebufferTarget<'a> {
 	data: &'a mut [u8],
 	width: u32,
@@ -58,9 +59,72 @@ impl<'a> OriginDimensions for FramebufferTarget<'a> {
 	}
 }
 
-#[derive(Default)]
-struct App {
+struct App<'a> {
 	selection: usize,
+	logos: [Logo<'a>; 6],
+}
+
+impl<'a> Default for App<'a> {
+	fn default() -> Self {
+		Self {
+			logos: [
+				Logo::from_pbm(Point::new(40, 60), include_bytes!("../res/swupdate.pbm")),
+				Logo::from_pbm(Point::new(160, 60), include_bytes!("../res/schedule.pbm")),
+				Logo::from_pbm(Point::new(280, 60), include_bytes!("../res/guestbook.pbm")),
+				Logo::from_pbm(Point::new(40, 180), include_bytes!("../res/snake.pbm")),
+				Logo::from_pbm(Point::new(160, 180), include_bytes!("../res/specs.pbm")),
+				Logo::from_pbm(Point::new(280, 180), include_bytes!("../res/sensors.pbm")),
+			],
+			selection: 0,
+		}
+	}
+}
+
+impl<'a> App<'a> {
+	fn display<D>(&'a self, target: &mut D)
+	where
+		D: DrawTarget<Color = BinaryColor>,
+		<D as DrawTarget>::Error: std::fmt::Debug,
+	{
+		let text_style = MonoTextStyle::new(&FONT_10X20, BinaryColor::On);
+		Text::with_alignment(
+			"Welcome to BeagleBadge!",
+			Point::new(200, 20),
+			text_style,
+			Alignment::Center,
+		)
+		.draw(target)
+		.unwrap();
+
+		self.logos
+			.iter()
+			.enumerate()
+			.try_for_each(|(i, logo)| logo.display(target, i == self.selection))
+			.unwrap();
+	}
+
+	fn handle_events(&mut self, keycode: KeyCode) {
+		match keycode {
+			KeyCode::KEY_RIGHT => {
+				self.selection += 1;
+				self.selection %= 6;
+			}
+			KeyCode::KEY_LEFT => {
+				if self.selection == 0 {
+					self.selection = 6;
+				}
+				self.selection -= 1;
+			}
+			KeyCode::KEY_UP | KeyCode::KEY_DOWN => {
+				if self.selection < 3 {
+					self.selection += 3;
+				} else {
+					self.selection -= 3;
+				}
+			}
+			_ => (),
+		}
+	}
 }
 
 struct Logo<'a> {
@@ -127,29 +191,6 @@ fn main() {
 
 	target.clear(BinaryColor::Off);
 
-	let text_style = MonoTextStyle::new(&FONT_10X20, BinaryColor::On);
-	Text::with_alignment(
-		"Welcome to BeagleBadge!",
-		Point::new(target.width as i32 / 2, 20),
-		text_style,
-		Alignment::Center,
-	)
-	.draw(&mut target)
-	.unwrap();
-
-	let logos = [
-		Logo::from_pbm(Point::new(40, 60), include_bytes!("../res/swupdate.pbm")),
-		Logo::from_pbm(Point::new(160, 60), include_bytes!("../res/schedule.pbm")),
-		Logo::from_pbm(Point::new(280, 60), include_bytes!("../res/guestbook.pbm")),
-		Logo::from_pbm(Point::new(40, 180), include_bytes!("../res/snake.pbm")),
-		Logo::from_pbm(Point::new(160, 180), include_bytes!("../res/specs.pbm")),
-		Logo::from_pbm(Point::new(280, 180), include_bytes!("../res/sensors.pbm")),
-	];
-	logos
-		.iter()
-		.enumerate()
-		.for_each(|(i, logo)| logo.display(&mut target, i == app.selection).unwrap());
-
 	let mut device = Device::open("/dev/input/event0").unwrap();
 
 	println!(
@@ -157,40 +198,17 @@ fn main() {
 		device.name().unwrap_or("Unknown Device")
 	);
 
+	app.display(&mut target);
+
 	loop {
-		let last_selection = app.selection;
 		let events = device.fetch_events().expect("Failed to read events");
 
 		for event in events {
 			match event.destructure() {
-				EventSummary::Key(_, keycode, 1) => {
-					match keycode {
-						KeyCode::KEY_RIGHT => {
-							app.selection += 1;
-							app.selection %= logos.len();
-						}
-						KeyCode::KEY_LEFT => {
-							if app.selection == 0 {
-								app.selection = logos.len();
-							}
-							app.selection -= 1;
-						}
-						KeyCode::KEY_UP | KeyCode::KEY_DOWN => {
-							if app.selection < logos.len() / 2 {
-								app.selection += logos.len() / 2;
-							} else {
-								app.selection -= logos.len() / 2;
-							}
-						}
-						_ => (),
-					};
-				}
+				EventSummary::Key(_, keycode, 1) => app.handle_events(keycode),
 				_ => (),
 			}
 		}
-		if last_selection != app.selection {
-			logos[app.selection].display(&mut target, true);
-			logos[last_selection].display(&mut target, false);
-		}
+		app.display(&mut target);
 	}
 }

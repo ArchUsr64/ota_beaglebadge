@@ -1,8 +1,10 @@
 use embedded_graphics::{
 	draw_target::DrawTarget,
+	image::{Image, ImageRaw},
 	mono_font::{MonoTextStyle, ascii::FONT_10X20},
-	pixelcolor::BinaryColor,
+	pixelcolor::{BinaryColor, raw::BigEndian},
 	prelude::*,
+	primitives::{PrimitiveStyle, Rectangle},
 	text::{Alignment, Text},
 };
 
@@ -56,6 +58,52 @@ impl<'a> OriginDimensions for FramebufferTarget<'a> {
 	}
 }
 
+struct Logo<'a> {
+	position: Point,
+	raw_image: ImageRaw<'a, BinaryColor, BigEndian>,
+}
+
+impl<'a> Logo<'a> {
+	const PBM_DATA_OFFSET: usize = 53;
+	const LOGO_OUTLINE_WIDTH: u32 = 4;
+	const LOGO_SIZE: u32 = 80;
+
+	fn from_pbm(position: Point, data: &'a [u8]) -> Logo<'a> {
+		Logo {
+			position,
+			raw_image: ImageRaw::<BinaryColor>::new(
+				&data[Self::PBM_DATA_OFFSET..],
+				Self::LOGO_SIZE,
+			),
+		}
+	}
+
+	fn to_image(&'a self) -> Image<'a, ImageRaw<'a, BinaryColor, BigEndian>> {
+		Image::new(&self.raw_image, self.position)
+	}
+
+	fn display<D>(&'a self, target: &mut D) -> Result<(), D::Error>
+	where
+		D: DrawTarget<Color = BinaryColor>,
+	{
+		let style = PrimitiveStyle::with_fill(BinaryColor::On);
+		Rectangle::new(
+			Point::new(
+				self.position.x - Self::LOGO_OUTLINE_WIDTH as i32,
+				self.position.y - Self::LOGO_OUTLINE_WIDTH as i32,
+			),
+			Size::new(
+				Self::LOGO_SIZE + Self::LOGO_OUTLINE_WIDTH * 2,
+				Self::LOGO_SIZE + Self::LOGO_OUTLINE_WIDTH * 2,
+			),
+		)
+		.into_styled(style)
+		.draw(target)?;
+
+		self.to_image().draw(target)
+	}
+}
+
 fn main() {
 	let fb = linuxfb::Framebuffer::new("/dev/fb0").unwrap();
 
@@ -79,6 +127,16 @@ fn main() {
 	)
 	.draw(&mut target)
 	.unwrap();
+
+	let logos = [
+		Logo::from_pbm(Point::new(40, 60), include_bytes!("../res/swupdate.pbm")),
+		Logo::from_pbm(Point::new(160, 60), include_bytes!("../res/schedule.pbm")),
+		Logo::from_pbm(Point::new(280, 60), include_bytes!("../res/guestbook.pbm")),
+		Logo::from_pbm(Point::new(40, 180), include_bytes!("../res/snake.pbm")),
+		Logo::from_pbm(Point::new(160, 180), include_bytes!("../res/specs.pbm")),
+		Logo::from_pbm(Point::new(280, 180), include_bytes!("../res/sensors.pbm")),
+	];
+	logos.iter().for_each(|i| i.display(&mut target).unwrap());
 
 	let mut device = Device::open("/dev/input/event0").unwrap();
 

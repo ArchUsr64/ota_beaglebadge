@@ -3,9 +3,10 @@ use embedded_graphics::{
 	mono_font::{MonoTextStyle, ascii::FONT_10X20},
 	pixelcolor::BinaryColor,
 	prelude::*,
-	primitives::{PrimitiveStyle, Rectangle},
 	text::Text,
 };
+
+use evdev::Device;
 
 struct FramebufferTarget<'a> {
 	data: &'a mut [u8],
@@ -69,14 +70,27 @@ fn main() {
 
 	target.clear(BinaryColor::Off);
 
-	let box_style = PrimitiveStyle::with_stroke(BinaryColor::On, 2);
-	Rectangle::new(Point::new(20, 20), Size::new(360, 260))
-		.into_styled(box_style)
+	let text_style = MonoTextStyle::new(&FONT_10X20, BinaryColor::On);
+	Text::new("Welcome to BeagleBadge!", Point::new(100, 20), text_style)
 		.draw(&mut target)
 		.unwrap();
 
-	let text_style = MonoTextStyle::new(&FONT_10X20, BinaryColor::On);
-	Text::new("Hello World!", Point::new(40, 50), text_style)
-		.draw(&mut target)
-		.unwrap();
+	let mut device = Device::open("/dev/input/event0").unwrap();
+
+	println!(
+		"Listening for joystick events on: {}",
+		device.name().unwrap_or("Unknown Device")
+	);
+
+	loop {
+		let events = device.fetch_events().expect("Failed to read events");
+
+		for event in events {
+			match event.destructure() {
+				e => {
+					dbg!(e);
+				}
+			}
+		}
+	}
 }

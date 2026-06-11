@@ -8,7 +8,7 @@ use embedded_graphics::{
 	text::{Alignment, Text},
 };
 
-use evdev::Device;
+use evdev::{Device, EventSummary, KeyCode};
 
 struct FramebufferTarget<'a> {
 	data: &'a mut [u8],
@@ -58,6 +58,11 @@ impl<'a> OriginDimensions for FramebufferTarget<'a> {
 	}
 }
 
+#[derive(Default)]
+struct App {
+	selection: usize,
+}
+
 struct Logo<'a> {
 	position: Point,
 	raw_image: ImageRaw<'a, BinaryColor, BigEndian>,
@@ -82,11 +87,15 @@ impl<'a> Logo<'a> {
 		Image::new(&self.raw_image, self.position)
 	}
 
-	fn display<D>(&'a self, target: &mut D) -> Result<(), D::Error>
+	fn display<D>(&'a self, target: &mut D, draw_outline: bool) -> Result<(), D::Error>
 	where
 		D: DrawTarget<Color = BinaryColor>,
 	{
-		let style = PrimitiveStyle::with_fill(BinaryColor::On);
+		let style = PrimitiveStyle::with_fill(if draw_outline {
+			BinaryColor::On
+		} else {
+			BinaryColor::Off
+		});
 		Rectangle::new(
 			Point::new(
 				self.position.x - Self::LOGO_OUTLINE_WIDTH as i32,
@@ -99,12 +108,12 @@ impl<'a> Logo<'a> {
 		)
 		.into_styled(style)
 		.draw(target)?;
-
 		self.to_image().draw(target)
 	}
 }
 
 fn main() {
+	let mut app = App::default();
 	let fb = linuxfb::Framebuffer::new("/dev/fb0").unwrap();
 
 	let mut data = fb.map().unwrap();
@@ -136,7 +145,10 @@ fn main() {
 		Logo::from_pbm(Point::new(160, 180), include_bytes!("../res/specs.pbm")),
 		Logo::from_pbm(Point::new(280, 180), include_bytes!("../res/sensors.pbm")),
 	];
-	logos.iter().for_each(|i| i.display(&mut target).unwrap());
+	logos
+		.iter()
+		.enumerate()
+		.for_each(|(i, logo)| logo.display(&mut target, i == app.selection).unwrap());
 
 	let mut device = Device::open("/dev/input/event0").unwrap();
 
@@ -146,14 +158,39 @@ fn main() {
 	);
 
 	loop {
+		let last_selection = app.selection;
 		let events = device.fetch_events().expect("Failed to read events");
 
 		for event in events {
 			match event.destructure() {
-				e => {
-					dbg!(e);
+				EventSummary::Key(_, keycode, 1) => {
+					match keycode {
+						KeyCode::KEY_RIGHT => {
+							app.selection += 1;
+							app.selection %= logos.len();
+						}
+						KeyCode::KEY_LEFT => {
+							if app.selection == 0 {
+								app.selection = logos.len();
+							}
+							app.selection -= 1;
+						}
+						KeyCode::KEY_UP | KeyCode::KEY_DOWN => {
+							if app.selection < logos.len() / 2 {
+								app.selection += logos.len() / 2;
+							} else {
+								app.selection -= logos.len() / 2;
+							}
+						}
+						_ => (),
+					};
 				}
+				_ => (),
 			}
+		}
+		if last_selection != app.selection {
+			logos[app.selection].display(&mut target, true);
+			logos[last_selection].display(&mut target, false);
 		}
 	}
 }

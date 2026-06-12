@@ -1,3 +1,22 @@
+mod swupdate;
+
+#[derive(Debug)]
+enum JoystickEvents {
+	Up,
+	Down,
+	Left,
+	Right,
+	Select,
+}
+
+trait SubApp {
+	fn handle_events(&mut self, event: JoystickEvents);
+	fn display<D>(&self, target: &mut D)
+	where
+		D: DrawTarget<Color = BinaryColor>,
+		<D as DrawTarget>::Error: std::fmt::Debug;
+}
+
 use embedded_graphics::{
 	draw_target::DrawTarget,
 	image::{Image, ImageRaw},
@@ -59,12 +78,14 @@ impl<'a> OriginDimensions for FramebufferTarget<'a> {
 	}
 }
 
-struct App<'a> {
+struct App<'a, T: SubApp> {
 	selection: usize,
 	logos: [Logo<'a>; 6],
+	subapps: [Option<T>; 6],
+	inside_subapp: bool,
 }
 
-impl<'a> Default for App<'a> {
+impl<'a, T: SubApp + Copy> Default for App<'a, T> {
 	fn default() -> Self {
 		Self {
 			logos: [
@@ -76,16 +97,25 @@ impl<'a> Default for App<'a> {
 				Logo::from_pbm(Point::new(280, 180), include_bytes!("../res/sensors.pbm")),
 			],
 			selection: 0,
+			subapps: [None; 6],
+			inside_subapp: false,
 		}
 	}
 }
 
-impl<'a> App<'a> {
+impl<'a, T: SubApp> App<'a, T> {
 	fn display<D>(&'a self, target: &mut D)
 	where
 		D: DrawTarget<Color = BinaryColor>,
 		<D as DrawTarget>::Error: std::fmt::Debug,
 	{
+		if self.inside_subapp
+			&& let Some(subapp) = self.subapps[self.selection].as_ref()
+		{
+			target.clear(BinaryColor::Off).unwrap();
+			subapp.display(target);
+			return;
+		}
 		let text_style = MonoTextStyle::new(&FONT_10X20, BinaryColor::On);
 		Text::with_alignment(
 			"Welcome to BeagleBadge!",
@@ -103,26 +133,45 @@ impl<'a> App<'a> {
 			.unwrap();
 	}
 
-	fn handle_events(&mut self, keycode: KeyCode) {
-		match keycode {
-			KeyCode::KEY_RIGHT => {
-				self.selection += 1;
-				self.selection %= 6;
+	pub fn handle_events(&mut self, keycode: KeyCode) {
+		if keycode == KeyCode::KEY_BACK && self.inside_subapp {
+			self.inside_subapp = false;
+		}
+		if self.inside_subapp
+			&& let Some(subapp) = self.subapps[self.selection].as_mut()
+		{
+			match keycode {
+				KeyCode::KEY_UP => subapp.handle_events(JoystickEvents::Up),
+				KeyCode::KEY_DOWN => subapp.handle_events(JoystickEvents::Down),
+				KeyCode::KEY_LEFT => subapp.handle_events(JoystickEvents::Left),
+				KeyCode::KEY_RIGHT => subapp.handle_events(JoystickEvents::Right),
+				KeyCode::KEY_SELECT => subapp.handle_events(JoystickEvents::Select),
+				_ => (),
 			}
-			KeyCode::KEY_LEFT => {
-				if self.selection == 0 {
-					self.selection = 6;
+		} else {
+			match keycode {
+				KeyCode::KEY_RIGHT => {
+					self.selection += 1;
+					self.selection %= 6;
 				}
-				self.selection -= 1;
-			}
-			KeyCode::KEY_UP | KeyCode::KEY_DOWN => {
-				if self.selection < 3 {
-					self.selection += 3;
-				} else {
-					self.selection -= 3;
+				KeyCode::KEY_LEFT => {
+					if self.selection == 0 {
+						self.selection = 6;
+					}
+					self.selection -= 1;
 				}
+				KeyCode::KEY_UP | KeyCode::KEY_DOWN => {
+					if self.selection < 3 {
+						self.selection += 3;
+					} else {
+						self.selection -= 3;
+					}
+				}
+				KeyCode::KEY_SELECT => {
+					self.inside_subapp = true;
+				}
+				_ => (),
 			}
-			_ => (),
 		}
 	}
 }
@@ -177,7 +226,8 @@ impl<'a> Logo<'a> {
 }
 
 fn main() {
-	let mut app = App::default();
+	let mut app = App::<swupdate::SWUpdate>::default();
+	app.subapps[0] = Some(swupdate::SWUpdate);
 	let fb = linuxfb::Framebuffer::new("/dev/fb0").unwrap();
 
 	let mut data = fb.map().unwrap();

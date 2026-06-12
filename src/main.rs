@@ -1,4 +1,7 @@
+mod snake;
 mod swupdate;
+
+pub const SCREEN_SIZE: (u32, u32) = (400, 300);
 
 #[derive(Debug)]
 enum JoystickEvents {
@@ -11,11 +14,11 @@ enum JoystickEvents {
 
 trait SubApp {
 	fn handle_events(&mut self, event: JoystickEvents);
-	fn display<D>(&self, target: &mut D)
-	where
-		D: DrawTarget<Color = BinaryColor>,
-		<D as DrawTarget>::Error: std::fmt::Debug;
+	fn display(&self, target: &mut FramebufferTarget);
+	fn update(&mut self);
 }
+
+use std::time::{Duration, Instant};
 
 use embedded_graphics::{
 	draw_target::DrawTarget,
@@ -78,14 +81,14 @@ impl<'a> OriginDimensions for FramebufferTarget<'a> {
 	}
 }
 
-struct App<'a, T: SubApp> {
+struct App<'a> {
 	selection: usize,
 	logos: [Logo<'a>; 6],
-	subapps: [Option<T>; 6],
+	subapps: [Option<Box<dyn SubApp>>; 6],
 	inside_subapp: bool,
 }
 
-impl<'a, T: SubApp + Copy> Default for App<'a, T> {
+impl<'a> Default for App<'a> {
 	fn default() -> Self {
 		Self {
 			logos: [
@@ -97,18 +100,21 @@ impl<'a, T: SubApp + Copy> Default for App<'a, T> {
 				Logo::from_pbm(Point::new(280, 180), include_bytes!("../res/sensors.pbm")),
 			],
 			selection: 0,
-			subapps: [None; 6],
+			subapps: [
+				Some(Box::new(swupdate::SWUpdate)),
+				None,
+				None,
+				Some(Box::new(snake::Snake::default())),
+				None,
+				None,
+			],
 			inside_subapp: false,
 		}
 	}
 }
 
-impl<'a, T: SubApp> App<'a, T> {
-	fn display<D>(&'a self, target: &mut D)
-	where
-		D: DrawTarget<Color = BinaryColor>,
-		<D as DrawTarget>::Error: std::fmt::Debug,
-	{
+impl<'a> App<'a> {
+	fn display(&'a self, target: &mut FramebufferTarget) {
 		static mut LAST_INSIDE_SUBAPP: bool = true;
 		unsafe {
 			if LAST_INSIDE_SUBAPP != self.inside_subapp {
@@ -180,6 +186,14 @@ impl<'a, T: SubApp> App<'a, T> {
 			}
 		}
 	}
+
+	pub fn update(&mut self) {
+		if self.inside_subapp
+			&& let Some(subapp) = self.subapps[self.selection].as_mut()
+		{
+			subapp.update();
+		}
+	}
 }
 
 struct Logo<'a> {
@@ -232,8 +246,8 @@ impl<'a> Logo<'a> {
 }
 
 fn main() {
-	let mut app = App::<swupdate::SWUpdate>::default();
-	app.subapps[0] = Some(swupdate::SWUpdate);
+	let mut app = App::default();
+	app.subapps[0] = Some(Box::new(swupdate::SWUpdate));
 	let fb = linuxfb::Framebuffer::new("/dev/fb0").unwrap();
 
 	let mut data = fb.map().unwrap();
@@ -248,6 +262,7 @@ fn main() {
 	target.clear(BinaryColor::Off);
 
 	let mut device = Device::open("/dev/input/event0").unwrap();
+	device.set_nonblocking(true).unwrap();
 
 	println!(
 		"Listening for joystick events on: {}",
@@ -256,15 +271,20 @@ fn main() {
 
 	app.display(&mut target);
 
+	let mut timestamp = Instant::now();
 	loop {
-		let events = device.fetch_events().expect("Failed to read events");
-
-		for event in events {
-			match event.destructure() {
-				EventSummary::Key(_, keycode, 1) => app.handle_events(keycode),
-				_ => (),
+		if timestamp.elapsed() > Duration::from_secs(1) {
+			timestamp = Instant::now();
+			app.update();
+			app.display(&mut target);
+		}
+		if let Ok(events) = device.fetch_events() {
+			for event in events {
+				match event.destructure() {
+					EventSummary::Key(_, keycode, 1) => app.handle_events(keycode),
+					_ => (),
+				}
 			}
 		}
-		app.display(&mut target);
 	}
 }

@@ -6,7 +6,7 @@ use embedded_graphics::{
 	text::{Alignment, Text},
 };
 
-use crate::SubApp;
+use crate::{FramebufferTarget, SubApp};
 
 #[derive(Copy, Clone)]
 pub struct SWUpdate;
@@ -15,13 +15,7 @@ impl SubApp for SWUpdate {
 	fn handle_events(&mut self, event: crate::JoystickEvents) {
 		println!("Handling events from SWUpdate {event:?}");
 	}
-	fn display<D>(&self, target: &mut D)
-	where
-		D: embedded_graphics::prelude::DrawTarget<
-				Color = embedded_graphics::pixelcolor::BinaryColor,
-			>,
-		<D as embedded_graphics::prelude::DrawTarget>::Error: std::fmt::Debug,
-	{
+	fn display(&self, target: &mut FramebufferTarget) {
 		let text_style = MonoTextStyle::new(&FONT_10X20, BinaryColor::On);
 		Text::with_alignment(
 			"SWUpdate",
@@ -32,4 +26,5 @@ impl SubApp for SWUpdate {
 		.draw(target)
 		.unwrap();
 	}
+	fn update(&mut self) {}
 }

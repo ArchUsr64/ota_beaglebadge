@@ -109,10 +109,16 @@ impl<'a, T: SubApp> App<'a, T> {
 		D: DrawTarget<Color = BinaryColor>,
 		<D as DrawTarget>::Error: std::fmt::Debug,
 	{
+		static mut LAST_INSIDE_SUBAPP: bool = true;
+		unsafe {
+			if LAST_INSIDE_SUBAPP != self.inside_subapp {
+				target.clear(BinaryColor::Off).unwrap();
+				LAST_INSIDE_SUBAPP = self.inside_subapp;
+			}
+		}
 		if self.inside_subapp
 			&& let Some(subapp) = self.subapps[self.selection].as_ref()
 		{
-			target.clear(BinaryColor::Off).unwrap();
 			subapp.display(target);
 			return;
 		}

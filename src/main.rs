@@ -1,4 +1,5 @@
 mod snake;
+mod specs;
 mod swupdate;
 
 pub const SCREEN_SIZE: (u32, u32) = (400, 300);
@@ -102,11 +103,11 @@ impl<'a> Default for App<'a> {
 			],
 			selection: 0,
 			subapps: [
-				Some(Box::new(swupdate::SWUpdate)),
+				Some(Box::new(swupdate::SWUpdate::default())),
 				None,
 				None,
 				Some(Box::new(snake::Snake::default())),
-				None,
+				Some(Box::new(specs::Specs::default())),
 				None,
 			],
 			inside_subapp: false,
@@ -253,7 +254,7 @@ impl<'a> Logo<'a> {
 
 fn main() {
 	let mut app = App::default();
-	app.subapps[0] = Some(Box::new(swupdate::SWUpdate));
+	app.subapps[0] = Some(Box::new(swupdate::SWUpdate::default()));
 	let fb = linuxfb::Framebuffer::new("/dev/fb0").unwrap();
 
 	let mut data = fb.map().unwrap();
@@ -286,9 +287,8 @@ fn main() {
 		}
 		if let Ok(events) = device.fetch_events() {
 			for event in events {
-				match event.destructure() {
-					EventSummary::Key(_, keycode, 1) => app.handle_events(keycode),
-					_ => (),
+				if let EventSummary::Key(_, keycode, 1) = event.destructure() {
+					app.handle_events(keycode);
 				}
 			}
 		}

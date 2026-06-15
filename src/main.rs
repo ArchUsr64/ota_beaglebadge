@@ -86,6 +86,7 @@ struct App<'a> {
 	logos: [Logo<'a>; 6],
 	subapps: [Option<Box<dyn SubApp>>; 6],
 	inside_subapp: bool,
+	running: bool,
 }
 
 impl<'a> Default for App<'a> {
@@ -109,6 +110,7 @@ impl<'a> Default for App<'a> {
 				None,
 			],
 			inside_subapp: false,
+			running: true,
 		}
 	}
 }
@@ -146,8 +148,12 @@ impl<'a> App<'a> {
 	}
 
 	pub fn handle_events(&mut self, keycode: KeyCode) {
-		if keycode == KeyCode::KEY_BACK && self.inside_subapp {
-			self.inside_subapp = false;
+		if keycode == KeyCode::KEY_BACK {
+			if self.inside_subapp {
+				self.inside_subapp = false;
+			} else {
+				self.running = false;
+			}
 		}
 		if self.inside_subapp
 			&& let Some(subapp) = self.subapps[self.selection].as_mut()
@@ -272,7 +278,7 @@ fn main() {
 	app.display(&mut target);
 
 	let mut timestamp = Instant::now();
-	loop {
+	while app.running {
 		if timestamp.elapsed() > Duration::from_secs(1) {
 			timestamp = Instant::now();
 			app.update();
@@ -287,4 +293,10 @@ fn main() {
 			}
 		}
 	}
+
+	let id_image_raw =
+		ImageRaw::<BinaryColor>::new(&include_bytes!("../res/id.pbm")[55..], SCREEN_SIZE.0);
+	Image::new(&id_image_raw, Point::zero())
+		.draw(&mut target)
+		.unwrap();
 }
